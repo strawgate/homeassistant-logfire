@@ -1,10 +1,9 @@
-"""Bounded event delivery and event-loop-safe health metrics."""
+"""Home Assistant adapter for bounded delivery and health metrics."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from collections import Counter
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
@@ -18,15 +17,12 @@ from homeassistant.const import (
     EVENT_HOMEASSISTANT_STARTED,
     EVENT_HOMEASSISTANT_STOP,
     EVENT_STATE_CHANGED,
-    STATE_UNAVAILABLE,
-    STATE_UNKNOWN,
 )
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.setup import async_get_setup_timings
 from opentelemetry.metrics import Counter as OtelCounter
 
-from .client import LogfireOtelClient, TelemetryRecord
 from .const import (
     CONF_EXCLUDE_ENTITIES,
     CONF_EXPORT_AUTOMATIONS,
@@ -47,7 +43,17 @@ from .const import (
     EVENT_AUTOMATION_TRIGGERED,
     EVENT_SYSTEM_LOG,
 )
-from .events import EventSettings, build_record
+from .core.delivery import DeliveryOutcome, DeliveryQueue, DeliveryStats, DeliveryStatus
+from .core.metrics import (
+    ConfigEntryHealth,
+    EntityHealth,
+    HealthSnapshot,
+    MetricValues,
+    aggregate_health_metrics,
+)
+from .core.otlp import LogfireOtelClient
+from .core.records import EventSettings
+from .events import build_record
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -99,20 +105,8 @@ class PipelineSettings:
         )
 
 
-@dataclass(slots=True)
-class PipelineStats:
-    """Non-sensitive runtime state exposed through diagnostics."""
-
-    dropped: int = 0
-    emitted: int = 0
-    enqueued: int = 0
-    failed: int = 0
-    last_error_at: str | None = None
-    last_emit_at: str | None = None
-
-
 class TelemetryPipeline:
-    """Decouple Home Assistant callbacks from OTLP delivery."""
+    """Connect Home Assistant inputs to the framework-independent core."""
 
     def __init__(
         self,
@@ -121,13 +115,12 @@ class TelemetryPipeline:
         client: LogfireOtelClient,
         settings: PipelineSettings,
     ) -> None:
-        """Initialize queue, instruments, and lifecycle-owned handles."""
+        """Initialize delivery, instruments, and lifecycle-owned handles."""
         self._hass = hass
         self._entry = entry
         self._client = client
         self.settings = settings
-        self.stats = PipelineStats()
-        self._queue: asyncio.Queue[TelemetryRecord] = asyncio.Queue(settings.queue_size)
+        self._delivery = DeliveryQueue(client, settings.queue_size, self._on_delivery_outcome)
         self._worker_task: asyncio.Task[None] | None = None
         self._remove_listeners: list[Callable[[], None]] = []
         self._remove_metric_interval: Callable[[], None] | None = None
@@ -136,7 +129,7 @@ class TelemetryPipeline:
         self._events_counter: OtelCounter = meter.create_counter(
             "homeassistant.telemetry.event",
             unit="1",
-            description="Home Assistant telemetry records accepted for export",
+            description="Home Assistant telemetry records submitted to OpenTelemetry",
         )
         self._dropped_counter: OtelCounter = meter.create_counter(
             "homeassistant.telemetry.dropped",
@@ -165,6 +158,11 @@ class TelemetryPipeline:
         )
         self._previous_metric_keys: dict[str, set[tuple[tuple[str, str], ...]]] = {}
 
+    @property
+    def stats(self) -> DeliveryStats:
+        """Return current non-sensitive delivery statistics."""
+        return self._delivery.stats
+
     async def async_start(self) -> None:
         """Start listeners, worker, and metric sampling."""
         event_types = {
@@ -182,12 +180,12 @@ class TelemetryPipeline:
             event_types.add(EVENT_SYSTEM_LOG)
         for event_type in event_types:
             self._remove_listeners.append(
-                self._hass.bus.async_listen(event_type, self._async_handle_event)
+                self._hass.bus.async_listen(event_type, self.handle_event)
             )
 
         self._worker_task = self._entry.async_create_background_task(
             self._hass,
-            self._async_worker(),
+            self._delivery.run(),
             "Logfire telemetry worker",
         )
         if self.settings.export_metrics:
@@ -208,13 +206,10 @@ class TelemetryPipeline:
             self._remove_metric_interval()
             self._remove_metric_interval = None
 
-        try:
-            async with asyncio.timeout(2):
-                await self._queue.join()
-        except TimeoutError:
+        if not await self._delivery.drain(2):
             _LOGGER.warning(
                 "Timed out draining %s Home Assistant telemetry records",
-                self._queue.qsize(),
+                self._delivery.size,
             )
         if self._worker_task is not None:
             self._worker_task.cancel()
@@ -223,44 +218,28 @@ class TelemetryPipeline:
             self._worker_task = None
 
     @callback
-    def _async_handle_event(self, event: Event[Any]) -> None:
+    def handle_event(self, event: Event[Any]) -> None:
+        """Adapt and enqueue one subscribed event without waiting for export."""
         record = build_record(self._hass, event, self.settings.events)
-        if record is None:
-            return
-        try:
-            self._queue.put_nowait(record)
-        except asyncio.QueueFull:
-            self.stats.dropped += 1
-            self._dropped_counter.add(1, {"reason": "application_queue_full"})
-            return
-        self.stats.enqueued += 1
+        if record is not None:
+            self._delivery.enqueue(record)
 
-    async def _async_worker(self) -> None:
-        while True:
-            record = await self._queue.get()
-            try:
-                self._client.emit(record)
-                self.stats.emitted += 1
-                self.stats.last_emit_at = datetime.now().astimezone().isoformat()
-                self._events_counter.add(1, {"event.name": record.event_name})
-            except Exception:
-                self.stats.failed += 1
-                self.stats.last_error_at = datetime.now().astimezone().isoformat()
-                self._dropped_counter.add(1, {"reason": "sdk_emit_error"})
-                _LOGGER.exception("Failed to emit a Home Assistant telemetry record")
-            finally:
-                self._queue.task_done()
+    def _on_delivery_outcome(self, outcome: DeliveryOutcome) -> None:
+        if outcome.status is DeliveryStatus.EMITTED:
+            self._events_counter.add(1, {"event.name": outcome.record.event_name})
+        elif outcome.status in (DeliveryStatus.DROPPED, DeliveryStatus.FAILED):
+            self._dropped_counter.add(1, {"reason": outcome.reason or "unknown"})
+        if outcome.error is not None:
+            _LOGGER.error(
+                "Failed to emit a Home Assistant telemetry record",
+                exc_info=(type(outcome.error), outcome.error, outcome.error.__traceback__),
+            )
 
     @callback
     def _async_collect_metrics(self, now: datetime) -> None:
         self._collect_metrics()
 
-    def _set_gauge_values(
-        self,
-        name: str,
-        gauge: Gauge,
-        values: dict[tuple[tuple[str, str], ...], float],
-    ) -> None:
+    def _set_gauge_values(self, name: str, gauge: Gauge, values: MetricValues) -> None:
         current_keys = set(values)
         for attributes in self._previous_metric_keys.get(name, set()) - current_keys:
             gauge.set(0, dict(attributes))
@@ -269,52 +248,30 @@ class TelemetryPipeline:
         self._previous_metric_keys[name] = current_keys
 
     def _collect_metrics(self) -> None:
-        entity_counts: Counter[str] = Counter()
-        unavailable_counts: Counter[str] = Counter()
-        for state in self._hass.states.async_all():
-            if not self.settings.events.accepts_entity(state.entity_id):
-                continue
-            entity_counts[state.domain] += 1
-            if state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
-                unavailable_counts[state.domain] += 1
-
-        self._set_gauge_values(
-            "entity_count",
-            self._entity_count,
-            {(("homeassistant.domain", domain),): count for domain, count in entity_counts.items()},
+        snapshot = HealthSnapshot(
+            entities=tuple(
+                EntityHealth(state.entity_id, state.domain, state.state)
+                for state in self._hass.states.async_all()
+            ),
+            config_entries=tuple(
+                ConfigEntryHealth(config_entry.domain, config_entry.state.value)
+                for config_entry in self._hass.config_entries.async_entries()
+            ),
+            setup_durations=tuple(async_get_setup_timings(self._hass).items()),
         )
+        batch = aggregate_health_metrics(snapshot, self.settings.events)
+        self._set_gauge_values("entity_count", self._entity_count, batch.entity_count)
         self._set_gauge_values(
             "unavailable_count",
             self._unavailable_count,
-            {
-                (("homeassistant.domain", domain),): count
-                for domain, count in unavailable_counts.items()
-            },
-        )
-
-        config_entry_counts: Counter[tuple[str, str]] = Counter(
-            (config_entry.domain, config_entry.state.value)
-            for config_entry in self._hass.config_entries.async_entries()
+            batch.unavailable_count,
         )
         self._set_gauge_values(
             "config_entry_count",
             self._config_entry_count,
-            {
-                (
-                    ("homeassistant.domain", domain),
-                    ("homeassistant.config_entry.state", state),
-                ): count
-                for (domain, state), count in config_entry_counts.items()
-            },
+            batch.config_entry_count,
         )
-        self._set_gauge_values(
-            "setup_duration",
-            self._setup_duration,
-            {
-                (("homeassistant.domain", domain),): duration
-                for domain, duration in async_get_setup_timings(self._hass).items()
-            },
-        )
+        self._set_gauge_values("setup_duration", self._setup_duration, batch.setup_duration)
 
     def diagnostics(self) -> dict[str, Any]:
         """Return non-sensitive runtime diagnostics."""
@@ -325,6 +282,6 @@ class TelemetryPipeline:
             "failed": self.stats.failed,
             "last_error_at": self.stats.last_error_at,
             "last_emit_at": self.stats.last_emit_at,
-            "queue_capacity": self.settings.queue_size,
-            "queue_size": self._queue.qsize(),
+            "queue_capacity": self._delivery.capacity,
+            "queue_size": self._delivery.size,
         }

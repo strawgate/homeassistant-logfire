@@ -1180,10 +1180,24 @@ dependencies = [
 ]
 
 [package.dev-dependencies]
+core-test = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+]
 dev = [
     { name = "homeassistant" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "pytest-homeassistant-custom-component" },
+    { name = "ruff" },
+]
+homeassistant-test = [
+    { name = "homeassistant" },
+    { name = "pytest-homeassistant-custom-component" },
+]
+lint = [
     { name = "ruff" },
 ]
 
@@ -1194,12 +1208,24 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
+core-test = [
+    { name = "pytest", specifier = ">=9.0.0" },
+    { name = "pytest-asyncio", specifier = ">=1.3.0" },
+    { name = "pytest-cov", specifier = ">=7.0.0" },
+]
 dev = [
     { name = "homeassistant", specifier = "==2026.8.3" },
+    { name = "pytest", specifier = ">=9.0.0" },
+    { name = "pytest-asyncio", specifier = ">=1.3.0" },
     { name = "pytest-cov", specifier = ">=7.0.0" },
     { name = "pytest-homeassistant-custom-component", specifier = "==0.13.357" },
     { name = "ruff", specifier = ">=0.12.0" },
 ]
+homeassistant-test = [
+    { name = "homeassistant", specifier = "==2026.8.3" },
+    { name = "pytest-homeassistant-custom-component", specifier = "==0.13.357" },
+]
+lint = [{ name = "ruff", specifier = ">=0.12.0" }]
 
 [[package]]
 name = "httpcore"

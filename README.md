@@ -22,8 +22,19 @@ Python 3.14, `uv`, and `just` are required.
 
 ```console
 just sync
+just test-core
+just test-integration
 just check
 ```
+
+`just test-core` creates a fresh temporary environment containing the project runtime and core
+test dependencies only. Home Assistant is deliberately absent, and the suite asserts that it
+cannot be imported. It tests pure event serialization, redaction, metric aggregation, bounded
+lossy delivery, and a real gzip/protobuf OTLP round trip to an in-process HTTP receiver.
+
+`just test-integration` adds Home Assistant and its custom-component test harness to verify the
+config flow, event adapter, pipeline wiring, diagnostics, and config-entry lifecycle. `just test`
+runs both layers.
 
 ## License
 

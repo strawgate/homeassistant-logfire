@@ -12,7 +12,9 @@ from custom_components.logfire.pipeline import PipelineSettings, TelemetryPipeli
 
 def test_full_queue_drops_new_record(hass: HomeAssistant) -> None:
     client = MagicMock()
-    client.meter.create_counter.return_value = MagicMock()
+    events_counter = MagicMock()
+    dropped_counter = MagicMock()
+    client.meter.create_counter.side_effect = [events_counter, dropped_counter]
     client.meter.create_gauge.return_value = MagicMock()
     settings = PipelineSettings(
         events=EventSettings(
@@ -38,13 +40,14 @@ def test_full_queue_drops_new_record(hass: HomeAssistant) -> None:
         },
     )
 
-    pipeline._async_handle_event(event)
-    pipeline._async_handle_event(event)
+    pipeline.handle_event(event)
+    pipeline.handle_event(event)
 
     assert pipeline.stats.enqueued == 1
     assert pipeline.stats.dropped == 1
     assert pipeline.diagnostics()["queue_size"] == 1
-    client.meter.create_counter.return_value.add.assert_called_once_with(
+    events_counter.add.assert_not_called()
+    dropped_counter.add.assert_called_once_with(
         1,
         {"reason": "application_queue_full"},
     )

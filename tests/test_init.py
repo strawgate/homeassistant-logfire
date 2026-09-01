@@ -42,14 +42,14 @@ async def test_setup_and_unload_own_private_providers(hass: HomeAssistant) -> No
 
     with (
         patch(
-            "custom_components.logfire.async_validate_token",
+            "custom_components.logfire.client.async_validate_token",
             new=AsyncMock(return_value=project),
         ),
         patch(
-            "custom_components.logfire.instance_id.async_get",
+            "homeassistant.helpers.instance_id.async_get",
             new=AsyncMock(return_value="test-instance"),
         ),
-        patch("custom_components.logfire.LogfireOtelClient", return_value=client),
+        patch("custom_components.logfire.client.LogfireOtelClient", return_value=client),
     ):
         assert await async_setup_entry(hass, entry)
 
@@ -66,7 +66,7 @@ async def test_setup_starts_reauth_for_rejected_token(hass: HomeAssistant) -> No
 
     with (
         patch(
-            "custom_components.logfire.async_validate_token",
+            "custom_components.logfire.client.async_validate_token",
             new=AsyncMock(side_effect=InvalidAuthError),
         ),
         pytest.raises(ConfigEntryAuthFailed),

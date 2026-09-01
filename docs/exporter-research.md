@@ -32,6 +32,7 @@ Observable metric callbacks run on SDK threads, so this integration records sync
 - From `remote_logger`: prevent exporter-log feedback loops, expose batch health, validate the endpoint before saving configuration, and cap serialized data.
 - From OpenTelemetry: use OTLP/HTTP protobuf, gzip, timeouts, and exponential backoff with jitter; keep metric units in instrument metadata.
 - From Logfire: use a project-scoped write token, a named service, deployment environment, and direct OTLP ingestion.
+- From uv: keep core and Home Assistant test dependencies in separate groups, and use an isolated temporary environment to prove the core declares everything it needs.
 
 ## Pitfalls
 
@@ -51,6 +52,11 @@ Observable metric callbacks run on SDK threads, so this integration records sync
 5. Add area, device, label, domain, and entity filters using Home Assistant selectors.
 6. Add a Logfire dashboard and alert pack only after live telemetry confirms the schema.
 
+The standalone-core extraction is complete: Home Assistant now adapts framework objects into plain
+snapshots, while filtering, redaction, aggregation, delivery, and OTLP export are testable without
+Home Assistant. A local receiver decodes real gzip-compressed `ExportLogsServiceRequest` and
+`ExportMetricsServiceRequest` bodies rather than mocking the exporter.
+
 The direct-ingestion smoke test was completed on 2026-09-01 with the project write token: Logfire accepted an OTLP log with its event name and resource attributes, plus a gauge with unit `1`, description, scope, resource, and data-point attributes. The admin token was not used for ingestion.
 
 ## Sources
@@ -64,6 +70,9 @@ The direct-ingestion smoke test was completed on 2026-09-01 with the project wri
 - [Logfire alternative-client OTLP configuration](https://pydantic.dev/docs/logfire/guides/alternative-clients/)
 - [OpenTelemetry Python exporters](https://opentelemetry.io/docs/languages/python/exporters/)
 - [OpenTelemetry OTLP exporter specification](https://opentelemetry.io/docs/specs/otel/protocol/exporter/)
+- [OpenTelemetry OTLP specification](https://opentelemetry.io/docs/specs/otlp/)
 - [OpenTelemetry metric semantic conventions](https://opentelemetry.io/docs/specs/semconv/general/metrics/)
+- [uv dependency groups](https://docs.astral.sh/uv/concepts/projects/dependencies/#dependency-groups)
+- [uv isolated project runs](https://docs.astral.sh/uv/reference/cli/#uv-run--isolated)
 - [Home Assistant config flows](https://developers.home-assistant.io/docs/core/integration/config_flow/)
 - [Home Assistant diagnostics rule](https://developers.home-assistant.io/docs/core/integration-quality-scale/rules/diagnostics/)

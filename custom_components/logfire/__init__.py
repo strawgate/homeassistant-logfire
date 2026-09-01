@@ -4,23 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import partial
+from typing import TYPE_CHECKING, Any
 
-from homeassistant import const as ha_const
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
-from homeassistant.helpers import instance_id
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
+if TYPE_CHECKING:
+    from homeassistant.config_entries import ConfigEntry
+    from homeassistant.core import HomeAssistant
 
-from .client import CannotConnectError, InvalidAuthError, LogfireOtelClient, async_validate_token
-from .const import (
-    CONF_ENVIRONMENT,
-    CONF_SERVICE_NAME,
-    CONF_TOKEN,
-    DEFAULT_ENVIRONMENT,
-    DEFAULT_SERVICE_NAME,
-)
-from .pipeline import PipelineSettings, TelemetryPipeline
+    from .core.otlp import LogfireOtelClient
+    from .pipeline import TelemetryPipeline
 
 
 @dataclass(slots=True)
@@ -31,7 +22,10 @@ class LogfireRuntimeData:
     pipeline: TelemetryPipeline
 
 
-type LogfireConfigEntry = ConfigEntry[LogfireRuntimeData]
+if TYPE_CHECKING:
+    type LogfireConfigEntry = ConfigEntry[LogfireRuntimeData]
+else:
+    LogfireConfigEntry = Any
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
@@ -41,13 +35,33 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: LogfireConfigEntry) -> bool:
     """Set up a Logfire config entry."""
+    from homeassistant import const as ha_const
+    from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+    from homeassistant.helpers import instance_id
+    from homeassistant.helpers.aiohttp_client import async_get_clientsession
+
+    from .client import (
+        CannotConnectError,
+        InvalidAuthError,
+        LogfireOtelClient,
+        async_validate_token,
+    )
+    from .const import (
+        CONF_ENVIRONMENT,
+        CONF_SERVICE_NAME,
+        CONF_TOKEN,
+        DEFAULT_ENVIRONMENT,
+        DEFAULT_SERVICE_NAME,
+    )
+    from .pipeline import PipelineSettings, TelemetryPipeline
+
     token = entry.data[CONF_TOKEN]
     try:
         await async_validate_token(async_get_clientsession(hass), token)
-    except InvalidAuthError as err:
-        raise ConfigEntryAuthFailed("Logfire rejected the project write token") from err
-    except CannotConnectError as err:
-        raise ConfigEntryNotReady("Unable to reach the Logfire API") from err
+    except InvalidAuthError as error:
+        raise ConfigEntryAuthFailed("Logfire rejected the project write token") from error
+    except CannotConnectError as error:
+        raise ConfigEntryNotReady("Unable to reach the Logfire API") from error
 
     settings = PipelineSettings.from_entry(entry)
     service_instance_id = await instance_id.async_get(hass)
@@ -65,8 +79,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: LogfireConfigEntry) -> b
                 export_metrics=settings.export_metrics,
             )
         )
-    except Exception as err:
-        raise ConfigEntryNotReady("Unable to initialize OpenTelemetry exporters") from err
+    except Exception as error:
+        raise ConfigEntryNotReady("Unable to initialize OpenTelemetry exporters") from error
 
     pipeline = TelemetryPipeline(hass, entry, client, settings)
     await pipeline.async_start()

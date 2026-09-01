@@ -5,15 +5,16 @@
 ```text
 Home Assistant event bus       Home Assistant registries
           |                              |
-          v                              v
-   minimal serializers          event-loop metric sampler
-          |                              |
-          v                              |
- bounded asyncio queue                   |
-          |                              |
-          +---------------+--------------+
+          +--------- thin adapter -------+
+                          |
+                   plain snapshots
+                          |
                           v
-        private OpenTelemetry SDK providers
+       Home Assistant-independent exporter core
+       - allowlisted serializers and redaction
+       - health-metric aggregation
+       - bounded lossy delivery queue
+       - private OpenTelemetry SDK providers
                           |
                  OTLP/HTTP protobuf + gzip
                           |
@@ -22,6 +23,11 @@ Home Assistant event bus       Home Assistant registries
 ```
 
 The integration is a HACS custom integration, not a Home Assistant add-on. It runs inside Home Assistant so it can use the event bus and registries without a second credential or polling API.
+
+The `custom_components.logfire.core` package imports no Home Assistant modules. The adapter copies
+only allowlisted fields into frozen plain snapshots before the core sees an event. This makes the
+privacy boundary and most exporter behavior deterministic and testable without starting or even
+installing Home Assistant.
 
 ## Security model
 
@@ -41,6 +47,10 @@ Home Assistant config entries are not encrypted independently on disk. Encrypted
 Event callbacks serialize a bounded set of scalar fields and call `put_nowait` on a bounded queue. If the queue is full, the new record is discarded and `homeassistant.telemetry.dropped` is incremented. Home automation must never wait for telemetry delivery.
 
 A config-entry-owned background task drains the queue into a private OpenTelemetry logger provider. Private batch processors provide compression, bounded queues, and transient retry. Unload removes listeners, stops metric scheduling, attempts a short queue drain, cancels the worker, and shuts down the providers off the event loop.
+
+The queue worker treats SDK exceptions as record loss, records the failure, and continues with the
+next item. Adapter-owned outcome observers are also isolated so a telemetry counter or logging
+failure cannot break event production or terminate delivery.
 
 ## Initial records
 
@@ -68,6 +78,22 @@ No arbitrary state attributes, service data, exception bodies, or user IDs are i
 | `homeassistant.telemetry.dropped` | `1` | reason |
 
 The first milestone intentionally excludes numeric entity values. The next milestone will map Home Assistant device/state classes and canonical units to typed instruments instead of placing heterogeneous values into one gauge.
+
+## Testability boundary
+
+The test pyramid has two separate dependency environments:
+
+- `just test-core` uses `uv run --isolated` with only OpenTelemetry and core test dependencies. It
+  asserts Home Assistant is unavailable, then covers the pure schema, redaction, filtering,
+  aggregation, and bounded-delivery behavior.
+- The core protocol test starts a loopback OTLP/HTTP receiver, accepts `/v1/logs` and `/v1/metrics`,
+  decompresses the gzip bodies, and decodes the official protobuf request types. It asserts paths,
+  headers, resources, instrumentation scope, record fields, and metric points.
+- `just test-integration` adds Home Assistant and verifies the thin adapter, config flow, lifecycle,
+  and diagnostics.
+
+This split follows uv's isolated-run and dependency-group model and the OTLP specification's
+binary protobuf paths and gzip requirements.
 
 ## Resource attributes
 
