@@ -90,7 +90,14 @@ The test pyramid has two separate dependency environments:
   decompresses the gzip bodies, and decodes the official protobuf request types. It asserts paths,
   headers, resources, instrumentation scope, record fields, and metric points.
 - `just test-integration` adds Home Assistant and verifies the thin adapter, config flow, lifecycle,
-  and diagnostics.
+  and diagnostics. It also replays a sanitized corpus captured from a live Home Assistant 2026.8.3
+  instance through Home Assistant's own `State.from_dict`, the adapter, and the serializer.
+
+The replay corpus is intentionally not an HTTP/WebSocket VCR. Only supported event types enter the
+capture tool, raw frames remain in memory, and an allowlist sanitizer replaces entity, context, and
+user identifiers before an atomic JSON write. CI validates the fixture schema and rejects
+credential-like fields and values. See [event-fixtures.md](event-fixtures.md) for the capture and
+review procedure.
 
 This split follows uv's isolated-run and dependency-group model and the OTLP specification's
 binary protobuf paths and gzip requirements.

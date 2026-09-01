@@ -1,0 +1,36 @@
+{
+  "event": {
+    "context": {
+      "id": "context-001",
+      "parent_id": null,
+      "user_id": null
+    },
+    "data": {
+      "entity_id": "sensor.sample_001",
+      "new_state": {
+        "attributes": {
+          "device_class": "battery",
+          "state_class": "measurement",
+          "unit_of_measurement": "%"
+        },
+        "context": {
+          "id": "context-001",
+          "parent_id": null,
+          "user_id": null
+        },
+        "entity_id": "sensor.sample_001",
+        "last_changed": "2026-01-01T00:00:00+00:00",
+        "last_reported": "2026-01-01T00:00:00+00:00",
+        "last_updated": "2026-01-01T00:00:00+00:00",
+        "state": "97.0"
+      },
+      "old_state": null
+    },
+    "event_type": "state_changed",
+    "origin": "LOCAL",
+    "time_fired": "2026-01-01T00:00:00+00:00"
+  },
+  "homeassistant_version": "2026.8.3",
+  "schema_version": 1,
+  "source": "sanitized-live-state-snapshot"
+}

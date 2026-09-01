@@ -15,6 +15,8 @@ Export Home Assistant health metrics, state changes, service calls, automation a
 - Preserve units in OTLP metric metadata instead of encoding units into metric names.
 
 The first milestone is described in [docs/architecture.md](docs/architecture.md). The exporter review that informed it is in [docs/exporter-research.md](docs/exporter-research.md).
+The sanitized live-event replay corpus and its refresh procedure are documented in
+[docs/event-fixtures.md](docs/event-fixtures.md).
 
 ## Development
 
@@ -35,6 +37,11 @@ lossy delivery, and a real gzip/protobuf OTLP round trip to an in-process HTTP r
 `just test-integration` adds Home Assistant and its custom-component test harness to verify the
 config flow, event adapter, pipeline wiring, diagnostics, and config-entry lifecycle. `just test`
 runs both layers.
+
+`just fixture-check` validates the checked-in event corpus independently of Home Assistant. The
+fixtures are minimized and pseudonymized representations of real Home Assistant 2026.8.3 payloads;
+the integration suite reconstructs real `Event` and `State` objects from them before exercising the
+adapter and serializer.
 
 ## License
 
