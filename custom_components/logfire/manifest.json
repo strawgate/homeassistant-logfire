@@ -1,0 +1,16 @@
+{
+  "domain": "logfire",
+  "name": "Pydantic Logfire",
+  "codeowners": ["@strawgate"],
+  "config_flow": true,
+  "dependencies": ["system_log"],
+  "documentation": "https://github.com/strawgate/homeassistant-logfire",
+  "integration_type": "service",
+  "iot_class": "cloud_push",
+  "issue_tracker": "https://github.com/strawgate/homeassistant-logfire/issues",
+  "requirements": [
+    "opentelemetry-exporter-otlp-proto-http==1.44.0",
+    "opentelemetry-sdk==1.44.0"
+  ],
+  "version": "0.1.0"
+}

@@ -1,0 +1,70 @@
+{
+  "title": "Pydantic Logfire",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect Home Assistant to Logfire",
+        "description": "Use a dedicated project write token. Admin and read tokens are not required.",
+        "data": {
+          "token": "Project write token",
+          "service_name": "Service name",
+          "environment": "Environment"
+        },
+        "data_description": {
+          "token": "Create this in Logfire project settings under Write Tokens.",
+          "service_name": "Name shown in Logfire's Services view.",
+          "environment": "Value for deployment.environment.name, such as home or production."
+        }
+      },
+      "reauth_confirm": {
+        "title": "Replace the Logfire write token",
+        "description": "Logfire rejected the stored token. Enter a new project write token.",
+        "data": {
+          "token": "Project write token"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Logfire",
+        "description": "Leave the write token blank to keep the existing token.",
+        "data": {
+          "token": "New project write token",
+          "service_name": "Service name",
+          "environment": "Environment"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot reach the Logfire API. Check internet access and try again.",
+      "invalid_auth": "Logfire rejected this write token. Create or copy a project write token and try again."
+    },
+    "abort": {
+      "already_configured": "This Logfire project is already configured.",
+      "reauth_successful": "The Logfire write token was updated.",
+      "reconfigure_successful": "The Logfire configuration was updated."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Choose Home Assistant telemetry",
+        "description": "Only allowlisted scalar fields are exported. Full event bodies, service data, exception bodies, and user IDs are never sent.",
+        "data": {
+          "export_state_changes": "Export state changes",
+          "export_service_calls": "Export service calls",
+          "export_automations": "Export automation triggers",
+          "export_system_logs": "Export Home Assistant warning and error logs",
+          "export_metrics": "Export health metrics",
+          "include_domains": "Included entity domains",
+          "exclude_entities": "Excluded entities",
+          "metric_interval": "Metric interval (seconds)",
+          "queue_size": "Maximum queued events"
+        },
+        "data_description": {
+          "include_domains": "Leave empty to include every domain. Filters state events, metric entity counts, and targeted service calls.",
+          "exclude_entities": "These entities are never included in state events, entity metrics, or targeted service calls.",
+          "queue_size": "New events are intentionally dropped when this queue is full so telemetry cannot consume unbounded memory."
+        }
+      }
+    }
+  }
+}
